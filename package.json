@@ -1,0 +1,19 @@
+{
+  "name": "order-portal",
+  "version": "1.0.0",
+  "description": "Client Order Portal Application",
+  "scripts": {
+    "install-backend": "cd backend && npm install",
+    "install-frontend": "cd frontend && npm install",
+    "build-frontend": "cd frontend && npm run build",
+    "heroku-postbuild": "npm run install-backend && npm run install-frontend && npm run build-frontend",
+    "start": "cd backend && node server.js",
+    "dev-backend": "cd backend && npm run dev",
+    "dev-frontend": "cd frontend && npm start",
+    "migrate": "cd backend && node database/migrate.js"
+  },
+  "engines": {
+    "node": "18.x",
+    "npm": "9.x"
+  }
+}
