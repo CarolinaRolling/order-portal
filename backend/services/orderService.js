@@ -5,28 +5,33 @@ const { sendEmail } = require('./emailService');
 // Configuration for your Carolina Rolling Inventory API
 const INVENTORY_API_URL = process.env.INVENTORY_API_URL || 'https://carolina-rolling-inventory-api-641af96c90aa.herokuapp.com/api';
 
+// Logging helper function
+const logEvent = async (logType, message, details = null, createdBy = 'system') => {
+  try {
+    await pool.query(
+      'INSERT INTO system_logs (log_type, message, details, created_by) VALUES ($1, $2, $3, $4)',
+      [logType, message, details ? JSON.stringify(details) : null, createdBy]
+    );
+  } catch (error) {
+    console.error('Failed to write log:', error);
+  }
+};
+
 /**
  * Check a single order status from your Carolina Rolling Inventory API
- * 
- * This function searches both shipments and inbound orders for the PO number
- * AND matches the client name to prevent confusion between different clients
- * who might have similar purchase order numbers.
- * 
- * Matching logic:
- * - PO Number must match exactly (clientPurchaseOrderNumber field)
- * - Client Name must match or be contained (clientName field)
- * - Both conditions must be true for a match
  */
 async function checkInventoryStatus(poNumber, clientName) {
   try {
+    await logEvent('status_check', `Fetching inventory data for PO: ${poNumber}, Client: ${clientName}`);
+    
     // First, try to find in shipments
     const shipmentsResponse = await axios.get(`${INVENTORY_API_URL}/shipments`, {
       timeout: 10000
     });
 
+    await logEvent('status_check', `Carolina API returned ${shipmentsResponse.data?.length || 0} shipments`);
+
     if (shipmentsResponse.data && shipmentsResponse.data.length > 0) {
-      // Search for matching PO number AND client name to ensure correct match
-      // This prevents confusion if multiple clients have similar PO numbers
       const shipment = shipmentsResponse.data.find(s => {
         const poMatches = s.clientPurchaseOrderNumber === poNumber;
         const clientMatches = !clientName || s.clientName === clientName || 
@@ -35,13 +40,14 @@ async function checkInventoryStatus(poNumber, clientName) {
       });
 
       if (shipment) {
-        console.log(`✅ Found shipment match: PO "${shipment.clientPurchaseOrderNumber}" for client "${shipment.clientName}"`);
+        await logEvent('status_check', `✅ Found shipment match: PO "${shipment.clientPurchaseOrderNumber}" for client "${shipment.clientName}"`, {
+          poNumber,
+          clientName,
+          inventoryClientName: shipment.clientName,
+          inventoryStatus: shipment.status
+        });
         
         let status = 'pending';
-        
-        // Map your shipment status to portal status
-        // IMPORTANT: Update these based on your actual status values
-        // Check your database to see what status values you're using
         
         if (shipment.status === 'delivered' || shipment.status === 'received') {
           status = 'received';
@@ -64,7 +70,8 @@ async function checkInventoryStatus(poNumber, clientName) {
             qrCode: shipment.qrCode,
             description: shipment.description,
             quantity: shipment.quantity,
-            updatedAt: shipment.updatedAt
+            updatedAt: shipment.updatedAt,
+            originalStatus: shipment.status
           }
         };
       }
@@ -75,8 +82,9 @@ async function checkInventoryStatus(poNumber, clientName) {
       timeout: 10000
     });
 
+    await logEvent('status_check', `Carolina API returned ${inboundResponse.data?.length || 0} inbound orders`);
+
     if (inboundResponse.data && inboundResponse.data.length > 0) {
-      // Search for matching PO number AND client name in inbound orders
       const inbound = inboundResponse.data.find(i => {
         const poMatches = i.clientPurchaseOrderNumber === poNumber;
         const clientMatches = !clientName || i.clientName === clientName || 
@@ -85,11 +93,15 @@ async function checkInventoryStatus(poNumber, clientName) {
       });
 
       if (inbound) {
-        console.log(`✅ Found inbound order match: PO "${inbound.clientPurchaseOrderNumber}" for client "${inbound.clientName}"`);
+        await logEvent('status_check', `✅ Found inbound order match: PO "${inbound.clientPurchaseOrderNumber}" for client "${inbound.clientName}"`, {
+          poNumber,
+          clientName,
+          inventoryClientName: inbound.clientName,
+          inventoryStatus: inbound.status
+        });
         
         let status = 'pending';
         
-        // Map your inbound order status to portal status
         if (inbound.status === 'received' || inbound.status === 'completed') {
           status = 'received';
         } else if (inbound.status === 'shipped' || inbound.status === 'in_transit') {
@@ -111,19 +123,24 @@ async function checkInventoryStatus(poNumber, clientName) {
             expectedDate: inbound.expectedDate,
             quantity: inbound.quantity,
             description: inbound.description,
-            updatedAt: inbound.updatedAt
+            updatedAt: inbound.updatedAt,
+            originalStatus: inbound.status
           }
         };
       }
     }
 
     // Not found in either shipments or inbound orders
+    await logEvent('warning', `Order not found in inventory: PO "${poNumber}", Client "${clientName}"`, { poNumber, clientName });
     return { found: false };
 
   } catch (error) {
-    console.error(`Error checking inventory for PO ${poNumber}:`, error.message);
-    
-    // Return null to indicate we couldn't check (don't update status)
+    await logEvent('error', `Error checking inventory for PO ${poNumber}`, { 
+      poNumber, 
+      clientName, 
+      error: error.message,
+      apiUrl: INVENTORY_API_URL 
+    });
     return null;
   }
 }
@@ -158,42 +175,69 @@ async function checkInventoryByQR(qrCode) {
 
     return { found: false };
   } catch (error) {
-    console.error(`Error checking by QR ${qrCode}:`, error.message);
+    await logEvent('error', `Error checking by QR ${qrCode}`, { qrCode, error: error.message });
     return null;
   }
 }
 
 /**
  * Check all pending/shipped orders and update their statuses
+ * @param {string} clientFilter - Optional company name to filter orders by (for client users)
  */
-async function checkOrderStatuses() {
+async function checkOrderStatuses(clientFilter = null) {
   const client = await pool.connect();
   
   try {
-    // Get all orders that aren't received yet
-    const result = await client.query(
-      `SELECT o.*, u.email, u.company_name as user_company_name
+    // Build query with optional client filter
+    let query = `SELECT o.*, u.email, u.company_name as user_company_name
        FROM orders o
        LEFT JOIN users u ON o.user_id = u.id
-       WHERE o.status IN ('pending', 'processing', 'shipped')
-       ORDER BY o.id`
-    );
+       WHERE o.status IN ('pending', 'processing', 'shipped')`;
+    
+    const params = [];
+    if (clientFilter) {
+      query += ` AND u.company_name = $1`;
+      params.push(clientFilter);
+      await logEvent('status_check', `Filtering orders for client: ${clientFilter}`, { clientFilter });
+    }
+    
+    query += ` ORDER BY o.id`;
+    
+    const result = await client.query(query, params);
 
-    console.log(`Checking ${result.rows.length} orders against Carolina Rolling Inventory API...`);
+    await logEvent('status_check', `Found ${result.rows.length} orders to check`, { 
+      count: result.rows.length,
+      clientFilter: clientFilter || 'all'
+    });
+
+    if (result.rows.length === 0) {
+      await logEvent('info', 'No pending/processing/shipped orders to check');
+      return;
+    }
 
     for (const order of result.rows) {
-      console.log(`🔍 Checking: PO "${order.po_number}" for client "${order.client_name}"`);
+      await logEvent('status_check', `🔍 Checking: PO "${order.po_number}" for client "${order.client_name}"`, {
+        orderId: order.id,
+        poNumber: order.po_number,
+        clientName: order.client_name,
+        currentStatus: order.status
+      });
+      
       const inventoryStatus = await checkInventoryStatus(order.po_number, order.client_name);
 
       if (inventoryStatus === null) {
         // API error - skip this order
-        console.log(`⚠️  Could not check order ${order.po_number} - API error`);
+        await logEvent('warning', `Could not check order ${order.po_number} - API error`, { orderId: order.id });
         continue;
       }
 
       if (!inventoryStatus.found) {
         // Order not found in inventory - no change
-        console.log(`ℹ️  Order ${order.po_number} not found in inventory yet`);
+        await logEvent('info', `Order ${order.po_number} not found in inventory yet`, { 
+          orderId: order.id,
+          poNumber: order.po_number,
+          clientName: order.client_name
+        });
         await client.query(
           'UPDATE orders SET last_checked = CURRENT_TIMESTAMP WHERE id = $1',
           [order.id]
@@ -203,7 +247,13 @@ async function checkOrderStatuses() {
 
       // Check if status changed
       if (inventoryStatus.status !== order.status) {
-        console.log(`✅ Order ${order.po_number} status changed: ${order.status} → ${inventoryStatus.status}`);
+        await logEvent('status_check', `✅ Order status changed: ${order.status} → ${inventoryStatus.status}`, {
+          orderId: order.id,
+          poNumber: order.po_number,
+          oldStatus: order.status,
+          newStatus: inventoryStatus.status,
+          inventoryDetails: inventoryStatus.details
+        });
 
         // Update order status
         await client.query(
@@ -223,9 +273,18 @@ async function checkOrderStatuses() {
         // Send email notification to user
         if (order.email) {
           await sendStatusChangeEmail(order, inventoryStatus.status, inventoryStatus.details);
+          await logEvent('email', `Status change email sent to ${order.email}`, {
+            orderId: order.id,
+            poNumber: order.po_number,
+            newStatus: inventoryStatus.status
+          });
         }
       } else {
         // Status unchanged - just update last_checked
+        await logEvent('info', `Order ${order.po_number} status unchanged: ${order.status}`, {
+          orderId: order.id,
+          status: order.status
+        });
         await client.query(
           'UPDATE orders SET last_checked = CURRENT_TIMESTAMP WHERE id = $1',
           [order.id]
@@ -233,9 +292,15 @@ async function checkOrderStatuses() {
       }
     }
 
-    console.log('✅ Status check completed');
+    await logEvent('status_check', `✅ Status check completed: Checked ${result.rows.length} orders`, {
+      ordersChecked: result.rows.length,
+      clientFilter: clientFilter || 'all'
+    });
   } catch (error) {
-    console.error('❌ Error checking order statuses:', error);
+    await logEvent('error', 'Error checking order statuses', { 
+      error: error.message,
+      stack: error.stack
+    });
     throw error;
   } finally {
     client.release();
@@ -265,6 +330,7 @@ async function sendStatusChangeEmail(order, newStatus, details) {
         ${details.qrCode ? `<li><strong>QR Code:</strong> ${details.qrCode}</li>` : ''}
         ${details.quantity ? `<li><strong>Quantity:</strong> ${details.quantity}</li>` : ''}
         ${details.description ? `<li><strong>Description:</strong> ${details.description}</li>` : ''}
+        ${details.originalStatus ? `<li><strong>Inventory Status:</strong> ${details.originalStatus}</li>` : ''}
       </ul>
     `;
   }
@@ -296,6 +362,8 @@ async function sendDelayAlerts() {
   const client = await pool.connect();
   
   try {
+    await logEvent('email', 'Starting delay alerts check');
+    
     // Get alert threshold from settings
     const settingsResult = await client.query(
       "SELECT setting_value FROM email_settings WHERE setting_key = 'alert_days_threshold'"
@@ -314,11 +382,14 @@ async function sendDelayAlerts() {
     );
 
     if (result.rows.length === 0) {
-      console.log('No delayed orders to alert about');
+      await logEvent('info', 'No delayed orders to alert about');
       return;
     }
 
-    console.log(`Found ${result.rows.length} orders approaching due date`);
+    await logEvent('email', `Found ${result.rows.length} orders approaching due date`, {
+      count: result.rows.length,
+      daysThreshold
+    });
 
     // Get alert recipients
     const recipientsResult = await client.query(
@@ -327,7 +398,7 @@ async function sendDelayAlerts() {
     const recipients = recipientsResult.rows.map(r => r.email);
 
     if (recipients.length === 0) {
-      console.log('⚠️  No alert recipients configured - skipping admin alerts');
+      await logEvent('warning', 'No alert recipients configured - skipping admin alerts');
     }
 
     // Group orders by user
@@ -349,9 +420,12 @@ async function sendDelayAlerts() {
       await sendAdminDelayAlert(recipients, result.rows, daysThreshold);
     }
 
-    console.log('✅ Delay alerts sent');
+    await logEvent('email', '✅ Delay alerts sent successfully', {
+      clientsSent: Object.keys(ordersByUser).length,
+      adminsSent: recipients.length
+    });
   } catch (error) {
-    console.error('❌ Error sending delay alerts:', error);
+    await logEvent('error', 'Error sending delay alerts', { error: error.message });
     throw error;
   } finally {
     client.release();
