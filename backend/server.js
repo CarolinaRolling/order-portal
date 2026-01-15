@@ -422,18 +422,22 @@ app.get('/health', (req, res) => {
 //  });
 //}
 
+// Serve simple HTML login page
+const path = require('path');
+app.use(express.static(path.join(__dirname, 'public')));
+
 // ==================== START SERVER ====================
 
 // Serve static files from React build in production
-if (process.env.NODE_ENV === 'production') {
-  const path = require('path');
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
+//if (process.env.NODE_ENV === 'production') {
+//  const path = require('path');
+//  app.use(express.static(path.join(__dirname, '../frontend/build')));
   
   // Serve React app for all other routes (must be last)
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
-  });
-}
+//  app.get('*', (req, res) => {
+//    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+//  });
+//}
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
