@@ -423,7 +423,7 @@ app.get('/health', (req, res) => {
 //}
 
 // Serve simple HTML login page
-const path = require('path');
+//const path = require('path');
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== START SERVER ====================
