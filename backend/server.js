@@ -549,7 +549,7 @@ cron.schedule('*/5 * * * *', async () => {
 });
 
 // Send delay alerts twice daily (9 AM and 5 PM)
-cron.schedule('0 9,17 * * *', async () => {
+cron.schedule('0 9 * * *', async () => {
   console.log('Running scheduled delay alert check...');
   await logEvent('email', 'Scheduled delay alerts check started', null, 'system');
   try {
