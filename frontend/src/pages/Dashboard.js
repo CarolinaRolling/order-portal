@@ -145,12 +145,13 @@ function Dashboard({ user, onLogout }) {
               </div>
               <div className="form-group">
                 <label>Client Name</label>
-                <input
-                  type="text"
-                  value={formData.client_name}
-                  onChange={(e) => setFormData({...formData, client_name: e.target.value})}
-                  placeholder="Client or project name"
-                />
+				<input
+					type="text"
+					value={user.companyName}
+					readOnly
+					style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
+					/>
+		   
               </div>
               <div className="form-group">
                 <label>Notes</label>
