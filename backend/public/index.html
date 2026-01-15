@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Order Portal Login</title>
+    <style>
+        body { font-family: Arial; max-width: 400px; margin: 100px auto; padding: 20px; }
+        input { width: 100%; padding: 10px; margin: 10px 0; }
+        button { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; cursor: pointer; }
+        .error { color: red; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Order Portal</h1>
+    <div id="error" class="error"></div>
+    <form id="loginForm">
+        <input type="text" id="username" placeholder="Username" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button type="submit">Sign In</button>
+    </form>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    alert('Login successful! Token: ' + data.token.substring(0, 20) + '...');
+                } else {
+                    document.getElementById('error').textContent = 'Login failed!';
+                }
+            } catch (err) {
+                document.getElementById('error').textContent = 'Error: ' + err.message;
+            }
+        });
+    </script>
+</body>
+</html>
