@@ -89,7 +89,6 @@ function Dashboard({ user, onLogout }) {
   const getStatusColor = (status) => {
     const colors = {
       pending: '#f39c12',
-      processing: '#3498db',
       shipped: '#9b59b6',
       received: '#27ae60'
     };
@@ -97,8 +96,23 @@ function Dashboard({ user, onLogout }) {
   };
 
   const filteredOrders = orders.filter(order => {
-    if (filter === 'all') return true;
-    return order.status === filter;
+    // Filter by status
+    if (filter !== 'all' && order.status !== filter) {
+      return false;
+    }
+    
+    // For "All" tab: Hide shipped orders older than 5 days
+    if (filter === 'all' && order.status === 'shipped') {
+      const statusChangeDate = order.last_status_change ? new Date(order.last_status_change) : new Date(order.created_at);
+      const daysSinceShipped = (new Date() - statusChangeDate) / (1000 * 60 * 60 * 24);
+      
+      // Hide if shipped for more than 5 days
+      if (daysSinceShipped > 5) {
+        return false;
+      }
+    }
+    
+    return true;
   });
 
   const stats = {
