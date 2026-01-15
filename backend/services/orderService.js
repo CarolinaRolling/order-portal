@@ -29,10 +29,12 @@ async function checkInventoryStatus(poNumber, clientName) {
       timeout: 10000
     });
 
-    await logEvent('status_check', `Carolina API returned ${shipmentsResponse.data?.length || 0} shipments`);
+    // Carolina API returns: {data: [...], total: X, limit: Y}
+    const shipments = shipmentsResponse.data?.data || [];
+    await logEvent('status_check', `Carolina API returned ${shipments.length} shipments`);
 
-    if (shipmentsResponse.data && shipmentsResponse.data.length > 0) {
-      const shipment = shipmentsResponse.data.find(s => {
+    if (shipments.length > 0) {
+      const shipment = shipments.find(s => {
         const poMatches = s.clientPurchaseOrderNumber === poNumber;
         const clientMatches = !clientName || s.clientName === clientName || 
                               (s.clientName && s.clientName.toLowerCase().includes(clientName.toLowerCase()));
@@ -82,10 +84,12 @@ async function checkInventoryStatus(poNumber, clientName) {
       timeout: 10000
     });
 
-    await logEvent('status_check', `Carolina API returned ${inboundResponse.data?.length || 0} inbound orders`);
+    // Carolina API returns: {data: [...], total: X, limit: Y}
+    const inboundOrders = inboundResponse.data?.data || [];
+    await logEvent('status_check', `Carolina API returned ${inboundOrders.length} inbound orders`);
 
-    if (inboundResponse.data && inboundResponse.data.length > 0) {
-      const inbound = inboundResponse.data.find(i => {
+    if (inboundOrders.length > 0) {
+      const inbound = inboundOrders.find(i => {
         const poMatches = i.clientPurchaseOrderNumber === poNumber;
         const clientMatches = !clientName || i.clientName === clientName || 
                               (i.clientName && i.clientName.toLowerCase().includes(clientName.toLowerCase()));
