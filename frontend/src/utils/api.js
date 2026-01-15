@@ -103,4 +103,6 @@ export const clearOldLogs = (days = 30) =>
 
 export default api;
 
+export const updateOrder = (id, orderData) => api.put(`/orders/${id}`, orderData);
+
 

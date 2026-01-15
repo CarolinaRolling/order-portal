@@ -207,6 +207,49 @@ app.get('/api/orders/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Update order
+app.put('/api/orders/:id', authenticateToken, async (req, res) => {
+  try {
+    const { po_number, date_required, notes } = req.body;
+    
+    // Check if order exists and user has permission
+    const checkQuery = req.user.role === 'admin'
+      ? 'SELECT * FROM orders WHERE id = $1'
+      : 'SELECT * FROM orders WHERE id = $1 AND user_id = $2';
+    
+    const checkParams = req.user.role === 'admin'
+      ? [req.params.id]
+      : [req.params.id, req.user.id];
+    
+    const checkResult = await pool.query(checkQuery, checkParams);
+    
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    
+    // Update the order
+    const result = await pool.query(
+      `UPDATE orders 
+       SET po_number = $1, date_required = $2, notes = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $4
+       RETURNING *`,
+      [po_number, date_required, notes, req.params.id]
+    );
+    
+    await logEvent('info', `Order updated: PO ${po_number}`, { 
+      orderId: req.params.id, 
+      poNumber: po_number,
+      changes: { po_number, date_required, notes }
+    }, req.user.username);
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Update order error:', error);
+    await logEvent('error', 'Failed to update order', { error: error.message, orderId: req.params.id }, req.user.username);
+    res.status(500).json({ error: 'Failed to update order' });
+  }
+});
+
 // Delete order
 app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
   try {

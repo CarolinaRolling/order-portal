@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getOrders, createOrder, deleteOrder, triggerStatusCheck } from '../utils/api';
+import { getOrders, createOrder, deleteOrder, triggerStatusCheck, updateOrder } from '../utils/api';
 import { format } from 'date-fns';
 import '../styles/Dashboard.css';
 
@@ -8,7 +8,14 @@ function Dashboard({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
   const [formData, setFormData] = useState({
+    po_number: '',
+    date_required: '',
+    notes: ''
+  });
+  const [editFormData, setEditFormData] = useState({
     po_number: '',
     date_required: '',
     notes: ''
@@ -83,6 +90,39 @@ function Dashboard({ user, onLogout }) {
       } catch (err) {
         setError('Failed to delete order');
       }
+    }
+  };
+
+  const handleEditOrder = (order) => {
+    setEditingOrder(order);
+    setEditFormData({
+      po_number: order.po_number,
+      date_required: order.date_required,
+      notes: order.notes || ''
+    });
+    setShowEditModal(true);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleUpdateOrder = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    try {
+      await updateOrder(editingOrder.id, {
+        po_number: editFormData.po_number,
+        date_required: editFormData.date_required,
+        notes: editFormData.notes
+      });
+      setShowEditModal(false);
+      setEditingOrder(null);
+      setSuccess('Order updated successfully!');
+      setTimeout(() => setSuccess(''), 3000);
+      loadOrders();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to update order');
     }
   };
 
@@ -239,6 +279,68 @@ function Dashboard({ user, onLogout }) {
           </div>
         )}
 
+        {/* Edit Order Modal */}
+        {showEditModal && editingOrder && (
+          <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3>Edit Order: {editingOrder.po_number}</h3>
+                <button onClick={() => setShowEditModal(false)} className="btn-close">✕</button>
+              </div>
+              <form onSubmit={handleUpdateOrder} className="edit-form">
+                <div className="form-group">
+                  <label>PO Number *</label>
+                  <input
+                    type="text"
+                    value={editFormData.po_number}
+                    onChange={(e) => setEditFormData({...editFormData, po_number: e.target.value})}
+                    required
+                    placeholder="PO-12345"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Date Required *</label>
+                  <input
+                    type="date"
+                    value={editFormData.date_required}
+                    onChange={(e) => setEditFormData({...editFormData, date_required: e.target.value})}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Client Name</label>
+                  <input
+                    type="text"
+                    value={user.companyName || ''}
+                    readOnly
+                    style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
+                  />
+                  <small style={{color: '#6b7280', fontSize: '12px', marginTop: '4px', display: 'block'}}>
+                    📌 Cannot be changed
+                  </small>
+                </div>
+                <div className="form-group">
+                  <label>Notes</label>
+                  <textarea
+                    value={editFormData.notes}
+                    onChange={(e) => setEditFormData({...editFormData, notes: e.target.value})}
+                    placeholder="Additional information..."
+                    rows="3"
+                  />
+                </div>
+                <div className="modal-actions">
+                  <button type="button" onClick={() => setShowEditModal(false)} className="btn-cancel">
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-save">
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         <div className="stats-grid">
           <div className="stat-card">
             <div className="stat-value">{stats.total}</div>
@@ -336,13 +438,22 @@ function Dashboard({ user, onLogout }) {
                       </td>
                       {user.role === 'admin' && <td>{order.company_name || '-'}</td>}
                       <td>
-                        <button 
-                          onClick={() => handleDelete(order.id)}
-                          className="btn-delete"
-                          title="Delete order"
-                        >
-                          🗑️
-                        </button>
+                        <div style={{display: 'flex', gap: '8px'}}>
+                          <button 
+                            onClick={() => handleEditOrder(order)}
+                            className="btn-edit"
+                            title="Edit order"
+                          >
+                            ✏️
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(order.id)}
+                            className="btn-delete"
+                            title="Delete order"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
