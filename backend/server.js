@@ -424,7 +424,7 @@ app.get('/health', (req, res) => {
 
 // Serve simple HTML login page
 //const path = require('path');
-app.use(express.static(path.join(__dirname, 'public')));
+//app.use(express.static(path.join(__dirname, 'public')));
 
 // ==================== START SERVER ====================
 
@@ -438,6 +438,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 //    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
 //  });
 //}
+
+// Serve React app in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../frontend/build')));
+  
+  // Handle React routing - serve index.html for all routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
