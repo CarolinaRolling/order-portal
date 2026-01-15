@@ -18,9 +18,9 @@ app.use(cors());
 app.use(express.json());
 
 // Serve static files from React build in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/build')));
-}
+//if (process.env.NODE_ENV === 'production') {
+//  app.use(express.static(path.join(__dirname, '../frontend/build')));
+//}
 
 // JWT Secret
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
@@ -402,14 +402,25 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Order Portal API',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      login: '/api/auth/login'
+    }
+  });
+});
+
 // ==================== SERVE REACT APP ====================
 
 // Serve React app for all other routes (must be last)
-if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
-  });
-}
+//if (process.env.NODE_ENV === 'production') {
+//  app.get('*', (req, res) => {
+//    res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+//  });
+//}
 
 // ==================== START SERVER ====================
 
