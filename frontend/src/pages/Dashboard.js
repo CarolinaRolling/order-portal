@@ -248,13 +248,13 @@ function Dashboard({ user, onLogout }) {
             <div className="stat-value">{stats.pending}</div>
             <div className="stat-label">Pending</div>
           </div>
-          <div className="stat-card" style={{borderTop: `4px solid ${getStatusColor('shipped')}`}}>
-            <div className="stat-value">{stats.shipped}</div>
-            <div className="stat-label">Shipped</div>
-          </div>
           <div className="stat-card" style={{borderTop: `4px solid ${getStatusColor('received')}`}}>
             <div className="stat-value">{stats.received}</div>
             <div className="stat-label">Received</div>
+          </div>
+          <div className="stat-card" style={{borderTop: `4px solid ${getStatusColor('shipped')}`}}>
+            <div className="stat-value">{stats.shipped}</div>
+            <div className="stat-label">Shipped</div>
           </div>
         </div>
 
@@ -275,16 +275,16 @@ function Dashboard({ user, onLogout }) {
                 Pending
               </button>
               <button 
-                className={filter === 'shipped' ? 'filter-btn active' : 'filter-btn'}
-                onClick={() => setFilter('shipped')}
-              >
-                Shipped
-              </button>
-              <button 
                 className={filter === 'received' ? 'filter-btn active' : 'filter-btn'}
                 onClick={() => setFilter('received')}
               >
                 Received
+              </button>
+              <button 
+                className={filter === 'shipped' ? 'filter-btn active' : 'filter-btn'}
+                onClick={() => setFilter('shipped')}
+              >
+                Shipped
               </button>
             </div>
           </div>

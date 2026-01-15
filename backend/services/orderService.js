@@ -53,10 +53,8 @@ async function checkInventoryStatus(poNumber, clientName) {
         
         if (shipment.status === 'delivered' || shipment.status === 'received') {
           status = 'received';
-        } else if (shipment.status === 'shipped' || shipment.status === 'in_transit' || shipment.status === 'out_for_delivery') {
+        } else if (shipment.status === 'shipped' || shipment.status === 'in_transit' || shipment.status === 'out_for_delivery' || shipment.status === 'processing' || shipment.status === 'preparing') {
           status = 'shipped';
-        } else if (shipment.status === 'processing' || shipment.status === 'preparing') {
-          status = 'processing';
         } else if (shipment.status === 'pending' || shipment.status === 'awaiting') {
           status = 'pending';
         }
@@ -108,10 +106,8 @@ async function checkInventoryStatus(poNumber, clientName) {
         
         if (inbound.status === 'received' || inbound.status === 'completed') {
           status = 'received';
-        } else if (inbound.status === 'shipped' || inbound.status === 'in_transit') {
+        } else if (inbound.status === 'shipped' || inbound.status === 'in_transit' || inbound.status === 'processing' || inbound.status === 'ordered') {
           status = 'shipped';
-        } else if (inbound.status === 'processing' || inbound.status === 'ordered') {
-          status = 'processing';
         } else if (inbound.status === 'pending' || inbound.status === 'awaiting') {
           status = 'pending';
         }
@@ -193,10 +189,11 @@ async function checkOrderStatuses(clientFilter = null) {
   
   try {
     // Build query with optional client filter
+    // Check ALL orders so status can go backwards (e.g. received → shipped)
     let query = `SELECT o.*, u.email, u.company_name as user_company_name
        FROM orders o
        LEFT JOIN users u ON o.user_id = u.id
-       WHERE o.status IN ('pending', 'processing', 'shipped')`;
+       WHERE 1=1`;
     
     const params = [];
     if (clientFilter) {
@@ -215,7 +212,7 @@ async function checkOrderStatuses(clientFilter = null) {
     });
 
     if (result.rows.length === 0) {
-      await logEvent('info', 'No pending/processing/shipped orders to check');
+      await logEvent('info', 'No orders to check');
       return;
     }
 
@@ -228,6 +225,16 @@ async function checkOrderStatuses(clientFilter = null) {
       });
       
       const inventoryStatus = await checkInventoryStatus(order.po_number, order.client_name);
+
+      // Log what Carolina returned
+      if (inventoryStatus) {
+        await logEvent('status_check', `Carolina API response for PO ${order.po_number}`, {
+          found: inventoryStatus.found,
+          carolinaStatus: inventoryStatus.details?.originalStatus,
+          mappedStatus: inventoryStatus.status,
+          currentPortalStatus: order.status
+        });
+      }
 
       if (inventoryStatus === null) {
         // API error - skip this order
@@ -249,14 +256,19 @@ async function checkOrderStatuses(clientFilter = null) {
         continue;
       }
 
-      // Check if status changed
-      if (inventoryStatus.status !== order.status) {
-        await logEvent('status_check', `✅ Order status changed: ${order.status} → ${inventoryStatus.status}`, {
+      if (inventoryStatus.found) {
+        // ALWAYS update status to match Carolina, even if it seems unchanged
+        // This allows status to go backwards (received → shipped)
+        const oldStatus = order.status;
+        const newStatus = inventoryStatus.status;
+        
+        await logEvent('status_check', `Updating order status: ${oldStatus} → ${newStatus}`, {
           orderId: order.id,
           poNumber: order.po_number,
-          oldStatus: order.status,
-          newStatus: inventoryStatus.status,
-          inventoryDetails: inventoryStatus.details
+          oldStatus,
+          newStatus,
+          carolinaStatus: inventoryStatus.details.originalStatus,
+          changed: oldStatus !== newStatus
         });
 
         // Update order status
@@ -265,34 +277,29 @@ async function checkOrderStatuses(clientFilter = null) {
            SET status = $1, last_checked = CURRENT_TIMESTAMP, 
                last_status_change = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
-          [inventoryStatus.status, order.id]
+          [newStatus, order.id]
         );
 
-        // Log status change
-        await client.query(
-          'INSERT INTO status_history (order_id, old_status, new_status) VALUES ($1, $2, $3)',
-          [order.id, order.status, inventoryStatus.status]
-        );
+        // Log status change if it actually changed
+        if (oldStatus !== newStatus) {
+          await client.query(
+            'INSERT INTO status_history (order_id, old_status, new_status) VALUES ($1, $2, $3)',
+            [order.id, oldStatus, newStatus]
+          );
 
-        // Send email notification to user
-        if (order.email) {
-          await sendStatusChangeEmail(order, inventoryStatus.status, inventoryStatus.details);
-          await logEvent('email', `Status change email sent to ${order.email}`, {
-            orderId: order.id,
-            poNumber: order.po_number,
-            newStatus: inventoryStatus.status
-          });
+          // Send email notification to user
+          if (order.email) {
+            await sendStatusChangeEmail(order, newStatus, inventoryStatus.details);
+            await logEvent('email', `Status change email sent to ${order.email}`, {
+              orderId: order.id,
+              poNumber: order.po_number,
+              oldStatus,
+              newStatus
+            });
+          }
         }
-      } else {
-        // Status unchanged - just update last_checked
-        await logEvent('info', `Order ${order.po_number} status unchanged: ${order.status}`, {
-          orderId: order.id,
-          status: order.status
-        });
-        await client.query(
-          'UPDATE orders SET last_checked = CURRENT_TIMESTAMP WHERE id = $1',
-          [order.id]
-        );
+        
+        continue;
       }
     }
 
