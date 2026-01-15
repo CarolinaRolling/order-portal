@@ -6,7 +6,7 @@ const cron = require('node-cron');
 const path = require('path');
 require('dotenv').config();
 
-const { pool } = require('../database/migrate');
+const { pool } = require('./database/migrate');
 const { checkOrderStatuses, sendDelayAlerts } = require('./services/orderService');
 const { sendEmail } = require('./services/emailService');
 
