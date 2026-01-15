@@ -51,12 +51,13 @@ async function checkInventoryStatus(poNumber, clientName) {
         
         let status = 'pending';
         
-        if (shipment.status === 'delivered' || shipment.status === 'received') {
-          status = 'received';
-        } else if (shipment.status === 'shipped' || shipment.status === 'in_transit' || shipment.status === 'out_for_delivery' || shipment.status === 'processing' || shipment.status === 'preparing') {
+        // If found in inventory with any status other than shipped/in-transit, it's received at facility
+        if (shipment.status === 'shipped' || shipment.status === 'in_transit' || shipment.status === 'out_for_delivery') {
           status = 'shipped';
-        } else if (shipment.status === 'pending' || shipment.status === 'awaiting') {
-          status = 'pending';
+        } else {
+          // processing, stored, received, pending, preparing, awaiting, delivered, completed, etc.
+          // All mean it's at your facility = RECEIVED
+          status = 'received';
         }
 
         return {
@@ -104,12 +105,13 @@ async function checkInventoryStatus(poNumber, clientName) {
         
         let status = 'pending';
         
-        if (inbound.status === 'received' || inbound.status === 'completed') {
-          status = 'received';
-        } else if (inbound.status === 'shipped' || inbound.status === 'in_transit' || inbound.status === 'processing' || inbound.status === 'ordered') {
+        // If found in inventory with any status other than shipped/in-transit, it's received at facility
+        if (inbound.status === 'shipped' || inbound.status === 'in_transit') {
           status = 'shipped';
-        } else if (inbound.status === 'pending' || inbound.status === 'awaiting') {
-          status = 'pending';
+        } else {
+          // processing, stored, received, pending, preparing, awaiting, ordered, completed, etc.
+          // All mean it's at your facility = RECEIVED
+          status = 'received';
         }
 
         return {
@@ -226,16 +228,6 @@ async function checkOrderStatuses(clientFilter = null) {
       
       const inventoryStatus = await checkInventoryStatus(order.po_number, order.client_name);
 
-      // Log what Carolina returned
-      if (inventoryStatus) {
-        await logEvent('status_check', `Carolina API response for PO ${order.po_number}`, {
-          found: inventoryStatus.found,
-          carolinaStatus: inventoryStatus.details?.originalStatus,
-          mappedStatus: inventoryStatus.status,
-          currentPortalStatus: order.status
-        });
-      }
-
       if (inventoryStatus === null) {
         // API error - skip this order
         await logEvent('warning', `Could not check order ${order.po_number} - API error`, { orderId: order.id });
@@ -256,19 +248,14 @@ async function checkOrderStatuses(clientFilter = null) {
         continue;
       }
 
-      if (inventoryStatus.found) {
-        // ALWAYS update status to match Carolina, even if it seems unchanged
-        // This allows status to go backwards (received → shipped)
-        const oldStatus = order.status;
-        const newStatus = inventoryStatus.status;
-        
-        await logEvent('status_check', `Updating order status: ${oldStatus} → ${newStatus}`, {
+      // Check if status changed
+      if (inventoryStatus.status !== order.status) {
+        await logEvent('status_check', `✅ Order status changed: ${order.status} → ${inventoryStatus.status}`, {
           orderId: order.id,
           poNumber: order.po_number,
-          oldStatus,
-          newStatus,
-          carolinaStatus: inventoryStatus.details.originalStatus,
-          changed: oldStatus !== newStatus
+          oldStatus: order.status,
+          newStatus: inventoryStatus.status,
+          inventoryDetails: inventoryStatus.details
         });
 
         // Update order status
@@ -277,29 +264,34 @@ async function checkOrderStatuses(clientFilter = null) {
            SET status = $1, last_checked = CURRENT_TIMESTAMP, 
                last_status_change = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
-          [newStatus, order.id]
+          [inventoryStatus.status, order.id]
         );
 
-        // Log status change if it actually changed
-        if (oldStatus !== newStatus) {
-          await client.query(
-            'INSERT INTO status_history (order_id, old_status, new_status) VALUES ($1, $2, $3)',
-            [order.id, oldStatus, newStatus]
-          );
+        // Log status change
+        await client.query(
+          'INSERT INTO status_history (order_id, old_status, new_status) VALUES ($1, $2, $3)',
+          [order.id, order.status, inventoryStatus.status]
+        );
 
-          // Send email notification to user
-          if (order.email) {
-            await sendStatusChangeEmail(order, newStatus, inventoryStatus.details);
-            await logEvent('email', `Status change email sent to ${order.email}`, {
-              orderId: order.id,
-              poNumber: order.po_number,
-              oldStatus,
-              newStatus
-            });
-          }
+        // Send email notification to user
+        if (order.email) {
+          await sendStatusChangeEmail(order, inventoryStatus.status, inventoryStatus.details);
+          await logEvent('email', `Status change email sent to ${order.email}`, {
+            orderId: order.id,
+            poNumber: order.po_number,
+            newStatus: inventoryStatus.status
+          });
         }
-        
-        continue;
+      } else {
+        // Status unchanged - just update last_checked
+        await logEvent('info', `Order ${order.po_number} status unchanged: ${order.status}`, {
+          orderId: order.id,
+          status: order.status
+        });
+        await client.query(
+          'UPDATE orders SET last_checked = CURRENT_TIMESTAMP WHERE id = $1',
+          [order.id]
+        );
       }
     }
 
@@ -323,9 +315,8 @@ async function checkOrderStatuses(clientFilter = null) {
  */
 async function sendStatusChangeEmail(order, newStatus, details) {
   const statusMessages = {
-    'processing': 'is being processed',
-    'shipped': 'has been shipped',
-    'received': 'has been received'
+    'received': 'has been received at our facility',
+    'shipped': 'has been shipped to you'
   };
 
   const subject = `Order Update: PO #${order.po_number}`;
