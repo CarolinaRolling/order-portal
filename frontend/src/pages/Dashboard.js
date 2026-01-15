@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getOrders, createOrder, deleteOrder } from '../utils/api';
+import { getOrders, createOrder, deleteOrder, triggerStatusCheck } from '../utils/api';
 import { format } from 'date-fns';
 import '../styles/Dashboard.css';
 
@@ -11,11 +11,12 @@ function Dashboard({ user, onLogout }) {
   const [formData, setFormData] = useState({
     po_number: '',
     date_required: '',
-    client_name: '',
     notes: ''
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [filter, setFilter] = useState('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadOrders();
@@ -35,14 +36,40 @@ function Dashboard({ user, onLogout }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
 
     try {
-      await createOrder(formData);
-      setFormData({ po_number: '', date_required: '', client_name: '', notes: '' });
+      await createOrder({
+        po_number: formData.po_number,
+        date_required: formData.date_required,
+        client_name: user.companyName, // Use user's company name
+        notes: formData.notes
+      });
+      setFormData({ po_number: '', date_required: '', notes: '' });
       setShowForm(false);
+      setSuccess('Order created successfully!');
+      setTimeout(() => setSuccess(''), 3000);
       loadOrders();
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to create order');
+    }
+  };
+
+  const handleRefreshStatus = async () => {
+    setRefreshing(true);
+    setError('');
+    setSuccess('');
+    try {
+      await triggerStatusCheck();
+      setSuccess('✅ Status check complete! Your orders have been updated.');
+      setTimeout(() => setSuccess(''), 3000);
+      // Reload orders to show updated statuses
+      await loadOrders();
+    } catch (error) {
+      console.error('Status check error:', error);
+      setError('❌ Error checking statuses: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -50,6 +77,8 @@ function Dashboard({ user, onLogout }) {
     if (window.confirm('Are you sure you want to delete this order?')) {
       try {
         await deleteOrder(id);
+        setSuccess('Order deleted successfully');
+        setTimeout(() => setSuccess(''), 3000);
         loadOrders();
       } catch (err) {
         setError('Failed to delete order');
@@ -107,14 +136,41 @@ function Dashboard({ user, onLogout }) {
             <h1>Order Dashboard</h1>
             <p className="subtitle">Track and manage your purchase orders</p>
           </div>
-          <button onClick={() => setShowForm(!showForm)} className="btn-primary">
-            {showForm ? '✕ Cancel' : '+ New Order'}
-          </button>
+          <div className="header-actions">
+            <button 
+              onClick={handleRefreshStatus}
+              className="btn-refresh"
+              disabled={refreshing}
+              style={{
+                padding: '10px 20px',
+                background: refreshing ? '#94a3b8' : '#2563eb',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: refreshing ? 'not-allowed' : 'pointer',
+                marginRight: '10px',
+                fontSize: '14px',
+                fontWeight: '600',
+                transition: 'all 0.2s'
+              }}
+            >
+              🔄 {refreshing ? 'Checking...' : 'Refresh All Statuses'}
+            </button>
+            <button onClick={() => setShowForm(!showForm)} className="btn-primary">
+              {showForm ? '✕ Cancel' : '+ New Order'}
+            </button>
+          </div>
         </header>
 
         {error && (
           <div className="alert alert-error">
             <span>⚠️</span> {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="alert alert-success">
+            <span>✅</span> {success}
           </div>
         )}
 
@@ -145,13 +201,15 @@ function Dashboard({ user, onLogout }) {
               </div>
               <div className="form-group">
                 <label>Client Name</label>
-				<input
-					type="text"
-					value={user.companyName}
-					readOnly
-					style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
-					/>
-		   
+                <input
+                  type="text"
+                  value={user.companyName || ''}
+                  readOnly
+                  style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
+                />
+                <small style={{color: '#6b7280', fontSize: '12px', marginTop: '4px', display: 'block'}}>
+                  📌 Auto-filled from your profile
+                </small>
               </div>
               <div className="form-group">
                 <label>Notes</label>
@@ -224,7 +282,7 @@ function Dashboard({ user, onLogout }) {
             </div>
           ) : filteredOrders.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">📭</div>
+              <div className="empty-icon">🔭</div>
               <h3>No orders found</h3>
               <p>Start by creating your first order</p>
             </div>
