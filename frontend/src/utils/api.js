@@ -100,6 +100,9 @@ export const getLogs = (logType = 'all', limit = 100, offset = 0) =>
 
 export const clearOldLogs = (days = 30) => 
   api.delete(`/admin/logs?days=${days}`);
+  
+export const cleanupShippedOrders = (days = 14) => 
+  api.delete(`/admin/cleanup-shipped?days=${days}`);
 
 export default api;
 

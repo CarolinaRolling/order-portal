@@ -156,7 +156,6 @@ function Dashboard({ user, onLogout }) {
   });
 
   const stats = {
-    total: orders.length,
     pending: orders.filter(o => o.status === 'pending').length,
     shipped: orders.filter(o => o.status === 'shipped').length,
     received: orders.filter(o => o.status === 'received').length
@@ -342,10 +341,6 @@ function Dashboard({ user, onLogout }) {
         )}
 
         <div className="stats-grid">
-          <div className="stat-card">
-            <div className="stat-value">{stats.total}</div>
-            <div className="stat-label">Total Orders</div>
-          </div>
           <div className="stat-card" style={{borderTop: `4px solid ${getStatusColor('pending')}`}}>
             <div className="stat-value">{stats.pending}</div>
             <div className="stat-label">Pending</div>
