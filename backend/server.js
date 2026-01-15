@@ -402,16 +402,16 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Order Portal API',
-    status: 'running',
-    endpoints: {
-      health: '/health',
-      login: '/api/auth/login'
-    }
-  });
-});
+//app.get('/', (req, res) => {
+//  res.json({ 
+//    message: 'Order Portal API',
+//    status: 'running',
+//    endpoints: {
+//      health: '/health',
+//      login: '/api/auth/login'
+//    }
+//  });
+//});
 
 // ==================== SERVE REACT APP ====================
 
