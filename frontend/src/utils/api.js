@@ -95,4 +95,12 @@ export const updateSettings = (settings) =>
 export const triggerStatusCheck = () => 
   api.post('/admin/check-statuses');
 
+export const getLogs = (logType = 'all', limit = 100, offset = 0) => 
+  api.get(`/admin/logs?log_type=${logType}&limit=${limit}&offset=${offset}`);
+
+export const clearOldLogs = (days = 30) => 
+  api.delete(`/admin/logs?days=${days}`);
+
 export default api;
+
+
