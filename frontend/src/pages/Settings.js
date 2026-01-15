@@ -237,7 +237,7 @@ function Settings({ user, onLogout }) {
                 </div>
                 <div className="info-card">
                   <div className="info-label">Daily Alert Checks</div>
-                  <div className="info-value">9:00 AM & 5:00 PM</div>
+                  <div className="info-value">9:00 AM</div>
                 </div>
                 <div className="info-card">
                   <div className="info-label">Alert Recipients</div>
